@@ -1,42 +1,1506 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+// main.dart - CMA Duolingo Pro (All-in-One)
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import 'dart:convert';
+import 'package:uuid/uuid.dart';
+import 'package:confetti/confetti.dart';
+import 'package:share_plus/share_plus.dart';
 
-name: Dart
+// ===================== MODELS =====================
+class FlashcardModel {
+  final String id;
+  final String english, arabic, formula;
+  final String category;
+  final int difficultyLevel;
+  final List<String> tags;
+  final DateTime createdAt;
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  const FlashcardModel({
+    required this.id,
+    required this.english,
+    required this.arabic,
+    this.formula = '',
+    this.category = '',
+    this.difficultyLevel = 1,
+    this.tags = const [],
+    required this.createdAt,
+  });
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'english': english,
+    'arabic': arabic,
+    'formula': formula,
+    'category': category,
+    'difficultyLevel': difficultyLevel,
+    'tags': tags,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
-    steps:
-      - uses: actions/checkout@v4
+  factory FlashcardModel.fromJson(Map<String, dynamic> json) => FlashcardModel(
+    id: json['id'],
+    english: json['english'],
+    arabic: json['arabic'],
+    formula: json['formula'] ?? '',
+    category: json['category'] ?? '',
+    difficultyLevel: json['difficultyLevel'] ?? 1,
+    tags: List<String>.from(json['tags'] ?? []),
+    createdAt: DateTime.parse(json['createdAt']),
+  );
+}
 
-      # Note: This workflow uses the latest stable version of the Dart SDK.
-      # You can specify other versions if desired, see documentation here:
-      # https://github.com/dart-lang/setup-dart/blob/main/README.md
-      # - uses: dart-lang/setup-dart@v1
-      - uses: dart-lang/setup-dart@9a04e6d73cca37bd455e0608d7e5092f881fd603
+class QuizModel {
+  final String id;
+  final String question;
+  final List<String> options;
+  final int answerIndex;
+  final String explanation, explanationAr;
+  final String category;
+  final int points;
 
-      - name: Install dependencies
-        run: dart pub get
+  const QuizModel({
+    required this.id,
+    required this.question,
+    required this.options,
+    required this.answerIndex,
+    required this.explanation,
+    required this.explanationAr,
+    this.category = '',
+    this.points = 10,
+  });
 
-      # Uncomment this step to verify the use of 'dart format' on each commit.
-      # - name: Verify formatting
-      #   run: dart format --output=none --set-exit-if-changed .
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'question': question,
+    'options': options,
+    'answerIndex': answerIndex,
+    'explanation': explanation,
+    'explanationAr': explanationAr,
+    'category': category,
+    'points': points,
+  };
 
-      # Consider passing '--fatal-infos' for slightly stricter analysis.
-      - name: Analyze project source
-        run: dart analyze
+  factory QuizModel.fromJson(Map<String, dynamic> json) => QuizModel(
+    id: json['id'],
+    question: json['question'],
+    options: List<String>.from(json['options']),
+    answerIndex: json['answerIndex'],
+    explanation: json['explanation'],
+    explanationAr: json['explanationAr'],
+    category: json['category'] ?? '',
+    points: json['points'] ?? 10,
+  );
+}
 
-      # Your project will need to have tests in test/ and a dependency on
-      # package:test for this step to succeed. Note that Flutter projects will
-      # want to change this to 'flutter test'.
-      - name: Run tests
-        run: dart test
+class Lesson {
+  final String id;
+  final String title, titleAr;
+  final List<FlashcardModel> cards;
+  final List<QuizModel> quiz;
+  final String description, descriptionAr;
+  final int estimatedMinutes;
+  final List<String> prerequisites;
+  final DateTime lastUpdated;
+
+  const Lesson({
+    required this.id,
+    required this.title,
+    required this.titleAr,
+    required this.cards,
+    required this.quiz,
+    this.description = '',
+    this.descriptionAr = '',
+    this.estimatedMinutes = 15,
+    this.prerequisites = const [],
+    required this.lastUpdated,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'titleAr': titleAr,
+    'cards': cards.map((c) => c.toJson()).toList(),
+    'quiz': quiz.map((q) => q.toJson()).toList(),
+    'description': description,
+    'descriptionAr': descriptionAr,
+    'estimatedMinutes': estimatedMinutes,
+    'prerequisites': prerequisites,
+    'lastUpdated': lastUpdated.toIso8601String(),
+  };
+
+  factory Lesson.fromJson(Map<String, dynamic> json) => Lesson(
+    id: json['id'],
+    title: json['title'],
+    titleAr: json['titleAr'],
+    cards: (json['cards'] as List).map((c) => FlashcardModel.fromJson(c)).toList(),
+    quiz: (json['quiz'] as List).map((q) => QuizModel.fromJson(q)).toList(),
+    description: json['description'] ?? '',
+    descriptionAr: json['descriptionAr'] ?? '',
+    estimatedMinutes: json['estimatedMinutes'] ?? 15,
+    prerequisites: List<String>.from(json['prerequisites'] ?? []),
+    lastUpdated: DateTime.parse(json['lastUpdated']),
+  );
+}
+
+class StudyUnit {
+  final String id;
+  final String number, title, titleAr;
+  final List<Lesson> lessons;
+  final String description, descriptionAr, icon;
+  final int progress;
+  final DateTime createdAt;
+
+  const StudyUnit({
+    required this.id,
+    required this.number,
+    required this.title,
+    required this.titleAr,
+    required this.lessons,
+    this.description = '',
+    this.descriptionAr = '',
+    this.icon = '📚',
+    this.progress = 0,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'number': number,
+    'title': title,
+    'titleAr': titleAr,
+    'lessons': lessons.map((l) => l.toJson()).toList(),
+    'description': description,
+    'descriptionAr': descriptionAr,
+    'icon': icon,
+    'progress': progress,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory StudyUnit.fromJson(Map<String, dynamic> json) => StudyUnit(
+    id: json['id'],
+    number: json['number'],
+    title: json['title'],
+    titleAr: json['titleAr'],
+    lessons: (json['lessons'] as List).map((l) => Lesson.fromJson(l)).toList(),
+    description: json['description'] ?? '',
+    descriptionAr: json['descriptionAr'] ?? '',
+    icon: json['icon'] ?? '📚',
+    progress: json['progress'] ?? 0,
+    createdAt: DateTime.parse(json['createdAt']),
+  );
+}
+
+// ===================== DATA (CMA Content) =====================
+class CmaContent {
+  static const _uuid = Uuid();
+  static final now = DateTime.now();
+
+  static final List<StudyUnit> units = [
+    StudyUnit(
+      id: _uuid.v4(),
+      number: 'Unit 1',
+      title: 'Liquidity, Solvency & Leverage',
+      titleAr: 'السيولة والملاءة والرافعة',
+      description: 'Master financial ratios and leverage analysis',
+      descriptionAr: 'إتقان النسب المالية وتحليل الرافعة',
+      icon: '💰',
+      createdAt: now,
+      lessons: [
+        Lesson(
+          id: _uuid.v4(),
+          title: '1.1 Liquidity Ratios',
+          titleAr: 'نسب السيولة',
+          description: 'Learn to measure short-term financial health',
+          descriptionAr: 'تعلم قياس الصحة المالية قصيرة الأجل',
+          estimatedMinutes: 20,
+          lastUpdated: now,
+          cards: [
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Current Ratio = Current Assets / Current Liabilities',
+              arabic: 'نسبة التداول = الأصول المتداولة / الخصوم المتداولة',
+              formula: 'CA / CL',
+              category: 'Liquidity',
+              tags: ['current', 'liquidity', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Quick Ratio = (Cash + Marketable Securities + AR) / CL',
+              arabic: 'نسبة السيولة السريعة = (النقدية + الأوراق المالية + الذمم) / الخصوم المتداولة',
+              formula: '(Cash + MS + AR) / CL',
+              category: 'Liquidity',
+              tags: ['quick', 'liquidity', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Cash Ratio = (Cash + Marketable Securities) / CL',
+              arabic: 'نسبة النقدية = (النقدية + الأوراق المالية) / الخصوم المتداولة',
+              formula: '(Cash + MS) / CL',
+              category: 'Liquidity',
+              tags: ['cash', 'liquidity', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Operating Cash Flow Ratio = CFO / Current Liabilities',
+              arabic: 'نسبة التدفق النقدي التشغيلي = التدفق النقدي التشغيلي / الخصوم المتداولة',
+              formula: 'CFO / CL',
+              category: 'Liquidity',
+              tags: ['cash flow', 'operating', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Net Working Capital to Total Assets = (CA - CL) / TA',
+              arabic: 'صافي رأس المال العامل إلى إجمالي الأصول = (CA - CL) / TA',
+              formula: '(CA - CL) / TA',
+              category: 'Liquidity',
+              tags: ['NWC', 'working capital', 'ratio'],
+              createdAt: now,
+            ),
+          ],
+          quiz: [
+            QuizModel(
+              id: _uuid.v4(),
+              question: 'Which ratio excludes inventory from current assets?',
+              options: ['Current Ratio', 'Quick Ratio', 'Cash Ratio', 'NWC Ratio'],
+              answerIndex: 1,
+              explanation: 'The Quick Ratio excludes inventory as it\'s the least liquid current asset.',
+              explanationAr: 'نسبة السيولة السريعة تستبعد المخزون لأنه أقل الأصول المتداولة سيولة.',
+              category: 'Liquidity',
+              points: 15,
+            ),
+            QuizModel(
+              id: _uuid.v4(),
+              question: 'What does a Cash Ratio of 0.5 indicate?',
+              options: ['Strong liquidity', 'Moderate liquidity', 'Weak liquidity', 'Cannot determine'],
+              answerIndex: 2,
+              explanation: 'A cash ratio below 1 indicates limited ability to cover short-term obligations with cash alone.',
+              explanationAr: 'نسبة النقدية أقل من 1 تشير إلى قدرة محدودة على تغطية الالتزامات قصيرة الأجل بالنقدية فقط.',
+              category: 'Liquidity',
+              points: 20,
+            ),
+          ],
+        ),
+        Lesson(
+          id: _uuid.v4(),
+          title: '1.2 Capital Structure & Leverage',
+          titleAr: 'هيكل رأس المال والرافعة',
+          description: 'Understand debt management and financial leverage',
+          descriptionAr: 'فهم إدارة الديون والرافعة المالية',
+          estimatedMinutes: 25,
+          lastUpdated: now,
+          cards: [
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Debt to Capital = Total Debt / (Total Debt + Equity)',
+              arabic: 'نسبة الدين إلى رأس المال = إجمالي الدين / (إجمالي الدين + حقوق الملكية)',
+              formula: 'D / (D + E)',
+              category: 'Leverage',
+              tags: ['debt', 'capital', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Debt to Equity = Total Debt / Total Equity',
+              arabic: 'نسبة الدين إلى حقوق الملكية = إجمالي الدين / إجمالي حقوق الملكية',
+              formula: 'D / E',
+              category: 'Leverage',
+              tags: ['debt', 'equity', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Times Interest Earned (TIE) = EBIT / Interest Expense',
+              arabic: 'نسبة تغطية الفوائد = الأرباح قبل الفوائد والضرائب / مصاريف الفوائد',
+              formula: 'EBIT / Interest',
+              category: 'Leverage',
+              tags: ['coverage', 'interest', 'ratio'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Degree of Operating Leverage (DOL) = Contribution Margin / EBIT',
+              arabic: 'درجة الرافعة التشغيلية = هامش المساهمة / الأرباح قبل الفوائد والضرائب',
+              formula: 'CM / EBIT',
+              category: 'Leverage',
+              tags: ['operating', 'leverage', 'dol'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Degree of Financial Leverage (DFL) = EBIT / EBT',
+              arabic: 'درجة الرافعة المالية = الأرباح قبل الفوائد والضرائب / الأرباح قبل الضرائب',
+              formula: 'EBIT / EBT',
+              category: 'Leverage',
+              tags: ['financial', 'leverage', 'dfl'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Degree of Total Leverage (DTL) = DOL × DFL',
+              arabic: 'درجة الرافعة الكلية = DOL × DFL',
+              formula: 'DOL × DFL',
+              category: 'Leverage',
+              tags: ['total', 'leverage', 'dtl'],
+              createdAt: now,
+            ),
+          ],
+          quiz: [
+            QuizModel(
+              id: _uuid.v4(),
+              question: 'If DOL = 3 and sales increase by 10%, what is the percentage change in EBIT?',
+              options: ['3%', '10%', '30%', '300%'],
+              answerIndex: 2,
+              explanation: 'DOL × %ΔSales = 3 × 10% = 30% change in EBIT',
+              explanationAr: 'DOL × %Δالمبيعات = 3 × 10% = 30% تغير في الأرباح قبل الفوائد والضرائب',
+              category: 'Leverage',
+              points: 25,
+            ),
+          ],
+        ),
+      ],
+    ),
+    StudyUnit(
+      id: _uuid.v4(),
+      number: 'Unit 2',
+      title: 'Profitability & Market Ratios',
+      titleAr: 'الربحية ونسب السوق',
+      description: 'Analyze profitability and market performance',
+      descriptionAr: 'تحليل الربحية وأداء السوق',
+      icon: '📈',
+      createdAt: now,
+      lessons: [
+        Lesson(
+          id: _uuid.v4(),
+          title: '2.1 Profitability Ratios',
+          titleAr: 'نسب الربحية',
+          description: 'Measure operational efficiency and profit generation',
+          descriptionAr: 'قياس الكفاءة التشغيلية وتوليد الأرباح',
+          estimatedMinutes: 20,
+          lastUpdated: now,
+          cards: [
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Gross Margin = (Sales - COGS) / Sales',
+              arabic: 'هامش الربح الإجمالي = (المبيعات - تكلفة البضائع المباعة) / المبيعات',
+              formula: '(S - COGS) / S',
+              category: 'Profitability',
+              tags: ['gross', 'margin', 'profitability'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Return on Assets (ROA) = Net Income / Average Total Assets',
+              arabic: 'العائد على الأصول = صافي الدخل / متوسط إجمالي الأصول',
+              formula: 'NI / Avg TA',
+              category: 'Profitability',
+              tags: ['ROA', 'return', 'assets'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Return on Equity (ROE) = Net Income / Average Shareholders\' Equity',
+              arabic: 'العائد على حقوق الملكية = صافي الدخل / متوسط حقوق المساهمين',
+              formula: 'NI / Avg Equity',
+              category: 'Profitability',
+              tags: ['ROE', 'return', 'equity'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Sustainable Growth Rate = ROE × Retention Ratio',
+              arabic: 'معدل النمو المستدام = العائد على حقوق الملكية × نسبة الاحتفاظ',
+              formula: 'ROE × (1 - Payout)',
+              category: 'Profitability',
+              tags: ['sustainable', 'growth', 'rate'],
+              createdAt: now,
+            ),
+          ],
+          quiz: [
+            QuizModel(
+              id: _uuid.v4(),
+              question: 'What does a high ROA indicate?',
+              options: ['Efficient asset utilization', 'High debt levels', 'Low profitability', 'Poor management'],
+              answerIndex: 0,
+              explanation: 'High ROA indicates efficient use of assets to generate profits.',
+              explanationAr: 'ارتفاع العائد على الأصول يشير إلى الاستخدام الفعال للأصول لتوليد الأرباح.',
+              category: 'Profitability',
+              points: 15,
+            ),
+          ],
+        ),
+        Lesson(
+          id: _uuid.v4(),
+          title: '2.2 Market Ratios',
+          titleAr: 'نسب السوق',
+          description: 'Understand stock market performance metrics',
+          descriptionAr: 'فهم مقاييس أداء سوق الأسهم',
+          estimatedMinutes: 15,
+          lastUpdated: now,
+          cards: [
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Basic EPS = (Net Income - Preferred Dividends) / Weighted Average Common Shares',
+              arabic: 'ربحية السهم الأساسية = (صافي الدخل - أرباح الأسهم الممتازة) / متوسط الأسهم العادية المرجح',
+              formula: '(NI - Pref) / WACS',
+              category: 'Market',
+              tags: ['EPS', 'earnings', 'share'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Price-to-Earnings (P/E) = Market Price per Share / EPS',
+              arabic: 'مكرر الربحية = سعر السوق للسهم / ربحية السهم',
+              formula: 'Price / EPS',
+              category: 'Market',
+              tags: ['PE', 'valuation', 'multiple'],
+              createdAt: now,
+            ),
+            FlashcardModel(
+              id: _uuid.v4(),
+              english: 'Book Value per Share = Shareholders\' Equity / Shares Outstanding',
+              arabic: 'القيمة الدفترية للسهم = حقوق المساهمين / الأسهم القائمة',
+              formula: 'Equity / Shares',
+              category: 'Market',
+              tags: ['book', 'value', 'equity'],
+              createdAt: now,
+            ),
+          ],
+          quiz: [
+            QuizModel(
+              id: _uuid.v4(),
+              question: 'A high P/E ratio typically indicates:',
+              options: ['Company is overvalued', 'High growth expectations', 'Low profitability', 'High debt'],
+              answerIndex: 1,
+              explanation: 'High P/E often indicates market expects high future growth.',
+              explanationAr: 'مكرر الربحية المرتفع يشير غالباً إلى توقعات السوق بنمو مستقبلي مرتفع.',
+              category: 'Market',
+              points: 20,
+            ),
+          ],
+        ),
+      ],
+    ),
+  ];
+}
+
+// ===================== PROVIDERS =====================
+class LessonProgress {
+  final bool completed;
+  final int score;
+  final int attempts;
+  final DateTime? lastAttempt;
+
+  LessonProgress({
+    required this.completed,
+    required this.score,
+    required this.attempts,
+    this.lastAttempt,
+  });
+
+  LessonProgress copyWith({
+    bool? completed,
+    int? score,
+    int? attempts,
+    DateTime? lastAttempt,
+  }) {
+    return LessonProgress(
+      completed: completed ?? this.completed,
+      score: score ?? this.score,
+      attempts: attempts ?? this.attempts,
+      lastAttempt: lastAttempt ?? this.lastAttempt,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'completed': completed,
+    'score': score,
+    'attempts': attempts,
+    'lastAttempt': lastAttempt?.toIso8601String(),
+  };
+
+  factory LessonProgress.fromJson(Map<String, dynamic> json) => LessonProgress(
+    completed: json['completed'],
+    score: json['score'],
+    attempts: json['attempts'],
+    lastAttempt: json['lastAttempt'] != null ? DateTime.parse(json['lastAttempt']) : null,
+  );
+}
+
+class ProgressProvider extends ChangeNotifier {
+  final SharedPreferences _prefs;
+  Map<String, LessonProgress> _progress = {};
+  int _totalPoints = 0;
+  int _streakDays = 0;
+  DateTime? _lastStudyDate;
+
+  ProgressProvider(this._prefs) {
+    _loadProgress();
+  }
+
+  Map<String, LessonProgress> get progress => _progress;
+  int get totalPoints => _totalPoints;
+  int get streakDays => _streakDays;
+
+  void _loadProgress() {
+    final data = _prefs.getString('lesson_progress');
+    if (data != null) {
+      final Map<String, dynamic> json = jsonDecode(data);
+      _progress = json.map((key, value) =>
+          MapEntry(key, LessonProgress.fromJson(value as Map<String, dynamic>)));
+    }
+    _totalPoints = _prefs.getInt('total_points') ?? 0;
+    _streakDays = _prefs.getInt('streak_days') ?? 0;
+    final lastStudy = _prefs.getString('last_study_date');
+    if (lastStudy != null) {
+      _lastStudyDate = DateTime.parse(lastStudy);
+    }
+    _updateStreak();
+  }
+
+  void _saveProgress() {
+    final json = _progress.map((key, value) => MapEntry(key, value.toJson()));
+    _prefs.setString('lesson_progress', jsonEncode(json));
+    _prefs.setInt('total_points', _totalPoints);
+    _prefs.setInt('streak_days', _streakDays);
+    if (_lastStudyDate != null) {
+      _prefs.setString('last_study_date', _lastStudyDate!.toIso8601String());
+    }
+    notifyListeners();
+  }
+
+  void _updateStreak() {
+    final today = DateTime.now();
+    if (_lastStudyDate == null) return;
+    final difference = today.difference(_lastStudyDate!).inDays;
+    if (difference == 0) return;
+    if (difference == 1) {
+      _streakDays++;
+    } else if (difference > 1) {
+      _streakDays = 0;
+    }
+  }
+
+  void markLessonComplete(String lessonId, int score, int maxScore) {
+    final progress = _progress[lessonId] ?? LessonProgress(completed: false, score: 0, attempts: 0, lastAttempt: null);
+    _progress[lessonId] = progress.copyWith(
+      completed: true,
+      score: score,
+      attempts: progress.attempts + 1,
+      lastAttempt: DateTime.now(),
+    );
+    _totalPoints += score;
+    _lastStudyDate = DateTime.now();
+    _updateStreak();
+    _saveProgress();
+  }
+
+  bool isLessonCompleted(String lessonId) {
+    return _progress[lessonId]?.completed ?? false;
+  }
+
+  int getLessonScore(String lessonId) {
+    return _progress[lessonId]?.score ?? 0;
+  }
+
+  double getUnitProgress(String unitId, List<String> lessonIds) {
+    if (lessonIds.isEmpty) return 0.0;
+    int completed = 0;
+    for (var id in lessonIds) {
+      if (isLessonCompleted(id)) completed++;
+    }
+    return completed / lessonIds.length;
+  }
+
+  void resetProgress() {
+    _progress.clear();
+    _totalPoints = 0;
+    _streakDays = 0;
+    _lastStudyDate = null;
+    _saveProgress();
+  }
+}
+
+class ThemeProvider extends ChangeNotifier {
+  final SharedPreferences _prefs;
+  bool _isDark = false;
+
+  ThemeProvider(this._prefs) {
+    _isDark = _prefs.getBool('dark_mode') ?? false;
+  }
+
+  bool get isDark => _isDark;
+  ThemeMode get themeMode => _isDark ? ThemeMode.dark : ThemeMode.light;
+
+  void toggleTheme() {
+    _isDark = !_isDark;
+    _prefs.setBool('dark_mode', _isDark);
+    notifyListeners();
+  }
+
+  void setDarkMode(bool value) {
+    _isDark = value;
+    _prefs.setBool('dark_mode', _isDark);
+    notifyListeners();
+  }
+}
+
+// ===================== UTILITIES (Colors & Theme) =====================
+class AppColors {
+  static const Color primary = Color(0xFF58CC02);
+  static const Color primaryDark = Color(0xFF45A601);
+  static const Color primaryLight = Color(0xFFE8F8E0);
+  static const Color primaryGradientStart = Color(0xFF58CC02);
+  static const Color primaryGradientEnd = Color(0xFF2B8C00);
+  static const Color secondary = Color(0xFFFF7F00);
+  static const Color secondaryLight = Color(0xFFFFE0B2);
+  static const Color background = Color(0xFFF2F5F8);
+  static const Color backgroundDark = Color(0xFF1A1A2E);
+  static const Color surface = Color(0xFFFFFFFF);
+  static const Color surfaceDark = Color(0xFF2D2D44);
+  static const Color textPrimary = Color(0xFF1A1A2E);
+  static const Color textPrimaryDark = Color(0xFFE8E8F0);
+  static const Color textSecondary = Color(0xFF6B7280);
+  static const Color textSecondaryDark = Color(0xFF9CA3AF);
+  static const Color success = Color(0xFF10B981);
+  static const Color successLight = Color(0xFFD1FAE5);
+  static const Color error = Color(0xFFEF4444);
+  static const Color errorLight = Color(0xFFFEE2E2);
+  static const Color warning = Color(0xFFF59E0B);
+  static const Color warningLight = Color(0xFFFEF3C7);
+  static const Color info = Color(0xFF3B82F6);
+  static const Color infoLight = Color(0xFFDBEAFE);
+
+  static const LinearGradient primaryGradient = LinearGradient(
+    colors: [primaryGradientStart, primaryGradientEnd],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+}
+
+class AppTheme {
+  static ThemeData lightTheme = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    colorScheme: const ColorScheme.light(
+      primary: AppColors.primary,
+      secondary: AppColors.secondary,
+      surface: AppColors.surface,
+      background: AppColors.background,
+      error: AppColors.error,
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+      onSurface: AppColors.textPrimary,
+      onBackground: AppColors.textPrimary,
+      onError: Colors.white,
+    ),
+    scaffoldBackgroundColor: AppColors.background,
+    fontFamily: 'Poppins',
+    appBarTheme: const AppBarTheme(
+      elevation: 0,
+      centerTitle: true,
+      backgroundColor: AppColors.primary,
+      foregroundColor: Colors.white,
+      titleTextStyle: TextStyle(
+        color: Colors.white,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+      ),
+    ),
+    cardTheme: CardTheme(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: AppColors.surface,
+      shadowColor: Colors.black.withOpacity(0.05),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
+    ),
+  );
+
+  static ThemeData darkTheme = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.dark,
+    colorScheme: const ColorScheme.dark(
+      primary: AppColors.primary,
+      secondary: AppColors.secondary,
+      surface: AppColors.surfaceDark,
+      background: AppColors.backgroundDark,
+      error: AppColors.error,
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+      onSurface: AppColors.textPrimaryDark,
+      onBackground: AppColors.textPrimaryDark,
+      onError: Colors.white,
+    ),
+    scaffoldBackgroundColor: AppColors.backgroundDark,
+    fontFamily: 'Poppins',
+    appBarTheme: const AppBarTheme(
+      elevation: 0,
+      centerTitle: true,
+      backgroundColor: AppColors.primary,
+      foregroundColor: Colors.white,
+      titleTextStyle: TextStyle(
+        color: Colors.white,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+      ),
+    ),
+    cardTheme: CardTheme(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: AppColors.surfaceDark,
+      shadowColor: Colors.black.withOpacity(0.3),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
+    ),
+  );
+}
+
+// ===================== WIDGETS =====================
+class ProgressBar extends StatelessWidget {
+  final double progress;
+  final Color color, backgroundColor;
+  final double height;
+  const ProgressBar({super.key, required this.progress, this.color = Colors.blue, this.backgroundColor = Colors.grey, this.height = 8});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height / 2),
+      child: LinearProgressIndicator(
+        value: progress.clamp(0.0, 1.0),
+        backgroundColor: backgroundColor,
+        valueColor: AlwaysStoppedAnimation<Color>(color),
+        minHeight: height,
+      ),
+    );
+  }
+}
+
+class Flashcard extends StatelessWidget {
+  final FlashcardModel card;
+  final bool showArabic;
+  final VoidCallback onTap;
+  final Animation<double> flipAnimation;
+
+  const Flashcard({super.key, required this.card, required this.showArabic, required this.onTap, required this.flipAnimation});
+
+  @override
+  Widget build(BuildContext context) {
+    final isFront = !showArabic;
+    final rotation = isFront ? (1.0 - flipAnimation.value) : flipAnimation.value;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedBuilder(
+        animation: flipAnimation,
+        builder: (context, child) {
+          return Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.identity()
+              ..setEntry(3, 2, 0.001)
+              ..rotateX(rotation * 3.14159265),
+            child: child,
+          );
+        },
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.grey.shade200, width: 2),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 4))],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(showArabic ? Icons.translate : Icons.lightbulb_outline, size: 48, color: showArabic ? AppColors.primary : Colors.orange),
+              const SizedBox(height: 20),
+              Text(showArabic ? card.arabic : card.english, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.6)),
+              if (card.formula.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.primary.withOpacity(0.2))),
+                  child: Text(card.formula, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                ),
+              ],
+              if (card.tags.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Wrap(spacing: 8, children: card.tags.map((tag) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
+                  child: Text('#$tag', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                )).toList()),
+              ],
+              const SizedBox(height: 16),
+              Text(showArabic ? 'اضغط للترجمة إلى الإنجليزية' : 'Tap to translate to Arabic', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class QuizOption extends StatelessWidget {
+  final String text;
+  final int index, selectedIndex, correctIndex;
+  final bool isAnswered;
+  final VoidCallback onTap;
+
+  const QuizOption({super.key, required this.text, required this.index, required this.selectedIndex, required this.isAnswered, required this.correctIndex, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    Color backgroundColor = Colors.white;
+    Color borderColor = Colors.grey.shade300;
+    IconData? icon;
+
+    if (isAnswered) {
+      if (index == correctIndex) {
+        backgroundColor = AppColors.successLight;
+        borderColor = AppColors.success;
+        icon = Icons.check_circle;
+      } else if (index == selectedIndex && index != correctIndex) {
+        backgroundColor = AppColors.errorLight;
+        borderColor = AppColors.error;
+        icon = Icons.cancel;
+      }
+    } else if (selectedIndex == index) {
+      borderColor = AppColors.primary;
+      backgroundColor = AppColors.primaryLight;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 2),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 28, height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isAnswered
+                        ? (index == correctIndex ? AppColors.success : (index == selectedIndex && index != correctIndex ? AppColors.error : Colors.grey.shade200))
+                        : (selectedIndex == index ? AppColors.primary : Colors.grey.shade200),
+                  ),
+                  child: Center(
+                    child: isAnswered && (index == correctIndex || (index == selectedIndex && index != correctIndex))
+                        ? Icon(icon, size: 18, color: Colors.white)
+                        : Text(
+                            String.fromCharCode(65 + index),
+                            style: TextStyle(
+                              color: isAnswered ? (index == correctIndex || (index == selectedIndex && index != correctIndex) ? Colors.white : Colors.grey.shade600)
+                                  : (selectedIndex == index ? Colors.white : Colors.grey.shade600),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(text, style: TextStyle(
+                    fontSize: 16,
+                    color: isAnswered && index == correctIndex ? AppColors.success
+                        : (isAnswered && index == selectedIndex && index != correctIndex ? AppColors.error : Colors.black87),
+                    fontWeight: selectedIndex == index ? FontWeight.w600 : FontWeight.w400,
+                  )),
+                ),
+                if (isAnswered && index == correctIndex) const Icon(Icons.check_circle, color: AppColors.success, size: 20),
+                if (isAnswered && index == selectedIndex && index != correctIndex) const Icon(Icons.cancel, color: AppColors.error, size: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===================== SCREENS =====================
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation, _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(duration: const Duration(seconds: 2), vsync: this);
+    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
+    _scaleAnimation = Tween<double>(begin: 0.5, end: 1).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
+    _controller.forward();
+    Future.delayed(const Duration(seconds: 3), () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const UnitsListScreen())));
+  }
+
+  @override
+  void dispose() { _controller.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = context.watch<ProgressProvider>();
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(gradient: AppColors.primaryGradient),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: ScaleTransition(
+                  scale: _scaleAnimation,
+                  child: Container(
+                    width: 120, height: 120,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(30)),
+                    child: const Icon(Icons.school, size: 80, color: Colors.white),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 40),
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: const Column(
+                  children: [
+                    Text('CMA Duolingo Pro', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1)),
+                    SizedBox(height: 8),
+                    Text('Master Your CMA Journey', style: TextStyle(fontSize: 16, color: Colors.white70)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 60),
+              if (progress.totalPoints > 0)
+                FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
+                    child: Column(
+                      children: [
+                        Text('${progress.totalPoints} pts', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                        const SizedBox(height: 4),
+                        Text('🔥 ${progress.streakDays} day streak', style: const TextStyle(fontSize: 14, color: Colors.white70)),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 40),
+              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class UnitsListScreen extends StatelessWidget {
+  const UnitsListScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = context.watch<ProgressProvider>();
+    final totalLessons = CmaContent.units.fold(0, (sum, unit) => sum + unit.lessons.length);
+    final completedLessons = CmaContent.units.fold(0, (sum, unit) {
+      return sum + unit.lessons.where((lesson) => progress.isLessonCompleted(lesson.id)).length;
+    });
+    final overallProgress = totalLessons > 0 ? completedLessons / totalLessons : 0.0;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('CMA Part 2'),
+        actions: [
+          IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.pushNamed(context, '/settings')),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(80),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            color: AppColors.primary,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text('Overall Progress', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14)),
+                  Text('${(overallProgress * 100).round()}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                ]),
+                const SizedBox(height: 8),
+                ProgressBar(progress: overallProgress, color: Colors.white, backgroundColor: Colors.white.withOpacity(0.3)),
+                const SizedBox(height: 4),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text('$completedLessons/$totalLessons lessons', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12)),
+                  Row(children: [
+                    const Icon(Icons.star, size: 16, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text('${progress.totalPoints} pts', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12)),
+                    const SizedBox(width: 12),
+                    const Icon(Icons.local_fire_department, size: 16, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text('🔥${progress.streakDays}d', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12)),
+                  ]),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: CmaContent.units.length,
+        itemBuilder: (context, index) {
+          final unit = CmaContent.units[index];
+          final lessonIds = unit.lessons.map((l) => l.id).toList();
+          final unitProgress = progress.getUnitProgress(unit.id, lessonIds);
+          return Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: InkWell(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LessonsListScreen(unit: unit))),
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(12)), child: Text(unit.icon, style: const TextStyle(fontSize: 28))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(unit.number, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500)),
+                        Text(unit.titleAr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: unitProgress, backgroundColor: Colors.grey.shade200, valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary), minHeight: 4))),
+                          const SizedBox(width: 8),
+                          Text('${(unitProgress * 100).round()}%', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                        ]),
+                        const SizedBox(height: 4),
+                        Text('${unit.lessons.length} lessons', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                      ]),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class LessonsListScreen extends StatelessWidget {
+  final StudyUnit unit;
+  const LessonsListScreen({super.key, required this.unit});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = context.watch<ProgressProvider>();
+    return Scaffold(
+      appBar: AppBar(title: Text(unit.titleAr), leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context))),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: AppColors.primaryLight, border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+            child: Row(
+              children: [
+                Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Text(unit.icon, style: const TextStyle(fontSize: 32))),
+                const SizedBox(width: 16),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(unit.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text(unit.descriptionAr, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                ])),
+                const Icon(Icons.check_circle, color: AppColors.primary),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: unit.lessons.length,
+              itemBuilder: (context, index) {
+                final lesson = unit.lessons[index];
+                final isCompleted = progress.isLessonCompleted(lesson.id);
+                final score = progress.getLessonScore(lesson.id);
+                return Card(
+                  elevation: 1,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: isCompleted ? AppColors.primary : Colors.transparent, width: 2)),
+                  child: InkWell(
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FlashcardsScreen(lesson: lesson))),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isCompleted ? AppColors.primaryLight : Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                            child: Icon(isCompleted ? Icons.check_circle : Icons.play_arrow, color: isCompleted ? AppColors.primary : Colors.grey.shade600, size: 24)),
+                          const SizedBox(width: 16),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(lesson.titleAr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            const SizedBox(height: 4),
+                            Row(children: [
+                              Text('${lesson.cards.length} cards', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                              const SizedBox(width: 12),
+                              Icon(Icons.timer, size: 14, color: Colors.grey.shade600),
+                              const SizedBox(width: 4),
+                              Text('${lesson.estimatedMinutes} min', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                            ]),
+                          ])),
+                          if (isCompleted) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(12)), child: Text('$score pts', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 12))),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class FlashcardsScreen extends StatefulWidget {
+  final Lesson lesson;
+  const FlashcardsScreen({super.key, required this.lesson});
+
+  @override
+  State<FlashcardsScreen> createState() => _FlashcardsScreenState();
+}
+
+class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerProviderStateMixin {
+  int _currentIndex = 0;
+  bool _showArabic = false;
+  late AnimationController _animationController;
+  late Animation<double> _flipAnimation;
+  late ConfettiController _confettiController;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(duration: const Duration(milliseconds: 300), vsync: this);
+    _flipAnimation = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeInOut));
+    _confettiController = ConfettiController(duration: const Duration(seconds: 2));
+    _animationController.addListener(() {
+      if (_flipAnimation.value > 0.5) setState(() => _showArabic = !_showArabic);
+    });
+  }
+
+  @override
+  void dispose() { _animationController.dispose(); _confettiController.dispose(); super.dispose(); }
+
+  void _flipCard() => _animationController.forward(from: 0.0);
+
+  void _nextCard() {
+    if (_currentIndex < widget.lesson.cards.length - 1) {
+      setState(() { _currentIndex++; _showArabic = false; });
+      _animationController.value = 0.0;
+    } else {
+      _confettiController.play();
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('🎉 Lesson Complete!'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('You\'ve reviewed all flashcards!', style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 16),
+            Text('${widget.lesson.cards.length} cards reviewed', style: const TextStyle(fontWeight: FontWeight.bold)),
+          ]),
+          actions: [
+            TextButton(onPressed: () { Navigator.pop(context); Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => QuizScreen(lesson: widget.lesson))); }, child: const Text('Start Quiz →')),
+          ],
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final card = widget.lesson.cards[_currentIndex];
+    final progress = (_currentIndex + 1) / widget.lesson.cards.length;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.lesson.titleAr, style: const TextStyle(fontSize: 14)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(6),
+          child: Container(height: 6, child: LinearProgressIndicator(value: progress, backgroundColor: Colors.white.withOpacity(0.3), valueColor: const AlwaysStoppedAnimation<Color>(Colors.white))),
+        ),
+      ),
+      body: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(20)), child: Text('${_currentIndex + 1} / ${widget.lesson.cards.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary))),
+                const SizedBox(height: 20),
+                Expanded(child: Flashcard(card: card, showArabic: _showArabic, onTap: _flipCard, flipAnimation: _flipAnimation)),
+                const SizedBox(height: 20),
+                Row(children: [
+                  Expanded(child: ElevatedButton(onPressed: _currentIndex > 0 ? () { setState(() { _currentIndex--; _showArabic = false; _animationController.value = 0.0; }); } : null, style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade200, foregroundColor: AppColors.textPrimary, elevation: 0), child: const Text('← Previous'))),
+                  const SizedBox(width: 16),
+                  Expanded(child: ElevatedButton(onPressed: _nextCard, style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white), child: Text(_currentIndex < widget.lesson.cards.length - 1 ? 'Next →' : 'Finish 🎯'))),
+                ]),
+                const SizedBox(height: 8),
+                Text('Tap card to flip', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+              ],
+            ),
+          ),
+          Align(alignment: Alignment.topCenter, child: ConfettiWidget(confettiController: _confettiController, blastDirectionality: BlastDirectionality.explosive, particleDrag: 0.05, emissionFrequency: 0.05, numberOfParticles: 20, gravity: 0.1, shouldLoop: false, colors: const [Colors.red, Colors.blue, Colors.green, Colors.yellow, Colors.purple, Colors.orange])),
+        ],
+      ),
+    );
+  }
+}
+
+class QuizScreen extends StatefulWidget {
+  final Lesson lesson;
+  const QuizScreen({super.key, required this.lesson});
+
+  @override
+  State<QuizScreen> createState() => _QuizScreenState();
+}
+
+class _QuizScreenState extends State<QuizScreen> with SingleTickerProviderStateMixin {
+  int _currentIndex = 0, _score = 0, _selectedIndex = -1;
+  bool _isAnswered = false;
+  late AnimationController _animationController;
+
+  List<QuizModel> get _quiz {
+    if (widget.lesson.quiz.isEmpty) {
+      return [QuizModel(id: 'default', question: 'What is the Current Ratio formula?', options: ['CA/CL', 'Quick Ratio', 'Cash Ratio', 'Debt/Equity'], answerIndex: 0, explanation: 'Current Ratio = CA/CL', explanationAr: 'نسبة التداول = CA/CL', points: 10)];
+    }
+    return widget.lesson.quiz;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(duration: const Duration(milliseconds: 500), vsync: this);
+  }
+
+  @override
+  void dispose() { _animationController.dispose(); super.dispose(); }
+
+  void _selectOption(int index) {
+    if (_isAnswered) return;
+    setState(() {
+      _isAnswered = true;
+      _selectedIndex = index;
+      if (index == _quiz[_currentIndex].answerIndex) _score += _quiz[_currentIndex].points;
+    });
+    _animationController.forward(from: 0.0);
+  }
+
+  void _nextQuestion() {
+    if (_currentIndex < _quiz.length - 1) {
+      setState(() { _currentIndex++; _isAnswered = false; _selectedIndex = -1; });
+      _animationController.value = 0.0;
+    } else {
+      final progress = context.read<ProgressProvider>();
+      progress.markLessonComplete(widget.lesson.id, _score, _quiz.fold(0, (sum, q) => sum + q.points));
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(children: [const Icon(Icons.emoji_events, color: Colors.amber, size: 32), const SizedBox(width: 12), Text(_score >= _quiz.length * 8 ? '🌟 Excellent!' : 'Good Effort!')]),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Your Score: $_score / ${_quiz.fold(0, (sum, q) => sum + q.points)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Correct: ${_quiz.where((q) => _quiz.indexOf(q) < _currentIndex + 1 && q.answerIndex == _selectedIndex).length} / ${_quiz.length}', style: const TextStyle(fontSize: 16)),
+            const SizedBox(height: 16),
+            Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(12)), child: Row(children: [const Icon(Icons.local_fire_department, color: Colors.orange), const SizedBox(width: 8), Text('🔥 ${progress.streakDays} day streak', style: const TextStyle(fontWeight: FontWeight.bold))])),
+          ]),
+          actions: [
+            TextButton(onPressed: () { Navigator.pop(context); Navigator.pop(context); Navigator.pop(context); }, child: const Text('Back to Units')),
+            ElevatedButton(onPressed: () { Navigator.pop(context); setState(() { _currentIndex = 0; _score = 0; _isAnswered = false; _selectedIndex = -1; }); }, style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white), child: const Text('Retry Quiz')),
+          ],
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final quiz = _quiz[_currentIndex];
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Quiz: ${widget.lesson.titleAr}', style: const TextStyle(fontSize: 14)),
+        actions: [Padding(padding: const EdgeInsets.only(right: 16), child: Center(child: Row(children: [const Icon(Icons.star, color: Colors.amber, size: 20), const SizedBox(width: 4), Text('$_score', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))])))],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Question ${_currentIndex + 1}/${_quiz.length}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)), Text('${_currentIndex + 1}/${_quiz.length}', style: const TextStyle(fontWeight: FontWeight.bold))]),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: (_currentIndex + 1) / _quiz.length, backgroundColor: Colors.grey.shade200, valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary)),
+            const SizedBox(height: 24),
+            Text(quiz.question, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, height: 1.5)),
+            const SizedBox(height: 24),
+            Expanded(child: ListView.builder(itemCount: quiz.options.length, itemBuilder: (context, index) => QuizOption(text: quiz.options[index], index: index, selectedIndex: _selectedIndex, isAnswered: _isAnswered, correctIndex: quiz.answerIndex, onTap: () => _selectOption(index)))),
+            if (_isAnswered) ...[
+              Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: _selectedIndex == quiz.answerIndex ? AppColors.successLight : AppColors.errorLight, borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [Icon(_selectedIndex == quiz.answerIndex ? Icons.check_circle : Icons.cancel, color: _selectedIndex == quiz.answerIndex ? AppColors.success : AppColors.error), const SizedBox(width: 8), Text(_selectedIndex == quiz.answerIndex ? '✅ Correct! +${quiz.points} points' : '❌ Incorrect', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                const SizedBox(height: 8),
+                Text(quiz.explanationAr, style: TextStyle(color: Colors.grey.shade700, fontSize: 14)),
+              ])),
+              const SizedBox(height: 16),
+              SizedBox(width: double.infinity, height: 56, child: ElevatedButton(onPressed: _nextQuestion, style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(_currentIndex < _quiz.length - 1 ? 'Next Question →' : 'See Results 🏆', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final progress = context.watch<ProgressProvider>();
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings'), leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context))),
+      body: ListView(
+        children: [
+          const SizedBox(height: 8),
+          _buildSection('Appearance', children: [
+            SwitchListTile(title: const Text('Dark Mode'), subtitle: const Text('Toggle dark/light theme'), value: themeProvider.isDark, onChanged: (value) => themeProvider.setDarkMode(value), secondary: const Icon(Icons.dark_mode)),
+          ]),
+          _buildSection('Progress', children: [
+            ListTile(leading: const Icon(Icons.star, color: Colors.amber), title: const Text('Total Points'), trailing: Text('${progress.totalPoints} pts')),
+            ListTile(leading: const Icon(Icons.local_fire_department, color: Colors.orange), title: const Text('Streak'), trailing: Text('${progress.streakDays} days')),
+            ListTile(leading: const Icon(Icons.school), title: const Text('Completed Lessons'), trailing: Text('${progress.progress.length}')),
+            ListTile(leading: const Icon(Icons.delete, color: AppColors.error), title: const Text('Reset Progress'), trailing: TextButton(onPressed: () => _showResetDialog(context), child: const Text('Reset', style: TextStyle(color: AppColors.error)))),
+          ]),
+          _buildSection('About', children: [
+            const ListTile(leading: Icon(Icons.info), title: Text('Version'), trailing: Text('2.0.0')),
+            ListTile(leading: const Icon(Icons.share), title: const Text('Share App'), onTap: () => Share.share('Check out CMA Duolingo Pro! 📚')),
+            ListTile(leading: const Icon(Icons.feedback), title: const Text('Send Feedback'), onTap: () => _sendFeedback(context)),
+          ]),
+          const SizedBox(height: 24),
+          Center(child: Text('CMA Duolingo Pro v2.0.0', style: TextStyle(color: Colors.grey.shade400, fontSize: 12))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, {required List<Widget> children}) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Text(title, style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 14))),
+      ...children,
+      const SizedBox(height: 8),
+    ]);
+  }
+
+  void _showResetDialog(BuildContext context) {
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text('Reset Progress?'),
+      content: const Text('This will delete all your progress, points, and streak. This action cannot be undone.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () { context.read<ProgressProvider>().resetProgress(); Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Progress reset successfully'))); }, style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white), child: const Text('Reset')),
+      ],
+    ));
+  }
+
+  void _sendFeedback(BuildContext context) {
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text('Send Feedback'),
+      content: const TextField(maxLines: 5, decoration: InputDecoration(hintText: 'Your feedback...', border: OutlineInputBorder())),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thank you for your feedback!'))); }, child: const Text('Send')),
+      ],
+    ));
+  }
+}
+
+// ===================== MAIN APP =====================
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ProgressProvider(prefs)),
+        ChangeNotifierProvider(create: (_) => ThemeProvider(prefs)),
+      ],
+      child: const CmaProApp(),
+    ),
+  );
+}
+
+class CmaProApp extends StatelessWidget {
+  const CmaProApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'CMA Duolingo Pro',
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeProvider.themeMode,
+      home: const SplashScreen(),
+      routes: {
+        '/units': (context) => const UnitsListScreen(),
+        '/settings': (context) => const SettingsScreen(),
+      },
+    );
+  }
+}
